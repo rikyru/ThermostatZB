@@ -66,6 +66,11 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
     return ret;
 }
 
+static esp_err_t attr_cb(const esp_zb_zcl_set_attr_value_message_t *message)
+{
+    return zb_attribute_handler(message);
+}
+
 static void update_rgb_led_state(esp_zb_app_signal_type_t sig_type)
 {
     switch (sig_type) {
@@ -181,7 +186,6 @@ static void send_basic_cluster_attributes()
     }
 }
 
-
 static void button_task(void *pvParameters)
 {
     while (1) {
@@ -203,105 +207,59 @@ static void esp_zb_task(void *pvParameters)
     // Configurazione dello stack Zigbee
     esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZED_CONFIG();
     esp_zb_init(&zb_nwk_cfg);
-
-    // Creazione dell'endpoint per la luce On/Off
-    esp_zb_on_off_light_cfg_t light_cfg = ESP_ZB_DEFAULT_ON_OFF_LIGHT_CONFIG();
-    on_off_light_ep = esp_zb_on_off_light_ep_create(HA_ESP_LIGHT_ENDPOINT, &light_cfg);
-
-    // Creazione della lista dei cluster
-    esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
-    if (!cluster_list) {
-        ESP_LOGE("ZB", "Errore: impossibile creare la lista cluster!");
-        return;
-    }
-
-    // Creazione del Basic Cluster
-    esp_zb_basic_cluster_cfg_t basic_cfg = {};
-    esp_zb_attribute_list_t *basic_cluster_attr_list = esp_zb_basic_cluster_create(&basic_cfg);
-    if (!basic_cluster_attr_list) {
-        ESP_LOGE("ZB", "Errore: impossibile creare la lista attributi per il Basic Cluster!");
-        return;
-    }
+    //esp_zb_set_network_channel(23);
 
     // Definizione degli attributi
+    uint8_t test_attr = 0;
+    uint8_t test_attr2 = 4;
     static uint8_t manufacturer_name[33] = {6, 'r', 'i', 'k', 'y', 'r', 'u'};
     static uint8_t model_id[33] = {12, 'E', 'S', 'P', '3', '2', '-', 'C', '6', '_', 'T', 'e', 's', 't'};
 
-    // Imposta la lunghezza corretta delle stringhe Zigbee
-    manufacturer_name[0] = strlen((char *)&manufacturer_name[1]);
-    model_id[0] = strlen((char *)&model_id[1]);
+    // Creazione del Basic Cluster
+    esp_zb_attribute_list_t *esp_zb_basic_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_ZCL_VERSION_ID, &test_attr);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, &test_attr2);
+    esp_zb_cluster_update_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_ZCL_VERSION_ID, &test_attr2);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, &model_id[0]);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, &manufacturer_name[0]);
 
-    // Aggiunta degli attributi al Basic Cluster
-    esp_err_t err;
+    // Creazione del Identify Cluster
+    esp_zb_attribute_list_t *esp_zb_identify_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_IDENTIFY);
+    esp_zb_identify_cluster_add_attr(esp_zb_identify_cluster, ESP_ZB_ZCL_ATTR_IDENTIFY_IDENTIFY_TIME_ID, &test_attr);
 
-    err = esp_zb_basic_cluster_add_attr(
-        basic_cluster_attr_list,
-        ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
-        (void *) manufacturer_name);
-    if (err != ESP_OK) {
-        ESP_LOGE("ZB", "Errore nell'aggiunta del Manufacturer Name: %d", err);
-        return;
-    }
+    // Creazione del Groups Cluster
+    esp_zb_attribute_list_t *esp_zb_groups_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_GROUPS);
+    esp_zb_groups_cluster_add_attr(esp_zb_groups_cluster, ESP_ZB_ZCL_ATTR_GROUPS_NAME_SUPPORT_ID, &test_attr);
 
-    err = esp_zb_basic_cluster_add_attr(
-        basic_cluster_attr_list,
-        ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
-        (void *) model_id);
-    if (err != ESP_OK) {
-        ESP_LOGE("ZB", "Errore nell'aggiunta del Model Identifier: %d", err);
-        return;
-    }
+    // Creazione del Scenes Cluster
+    esp_zb_attribute_list_t *esp_zb_scenes_cluster = esp_zb_scenes_cluster_create(NULL);
+    esp_zb_cluster_update_attr(esp_zb_scenes_cluster, ESP_ZB_ZCL_ATTR_SCENES_NAME_SUPPORT_ID, &test_attr);
 
-    // Aggiunta del Basic Cluster alla lista dei cluster
-    err = esp_zb_cluster_list_add_basic_cluster(cluster_list, basic_cluster_attr_list, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-    if (err != ESP_OK) {
-        ESP_LOGE("ZB", "Errore nell'aggiunta del Basic Cluster: %d", err);
-        return;
-    }
+    // Creazione del On/Off Cluster
+    esp_zb_on_off_cluster_cfg_t on_off_cfg;
+    on_off_cfg.on_off = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
+    esp_zb_attribute_list_t *esp_zb_on_off_cluster = esp_zb_on_off_cluster_create(&on_off_cfg);
 
-    // Registrazione dell'endpoint con la lista dei cluster
-    err = esp_zb_ep_list_add_ep(on_off_light_ep, cluster_list, HA_ESP_LIGHT_ENDPOINT, ESP_ZB_AF_HA_PROFILE_ID, ESP_ZB_HA_ON_OFF_LIGHT_DEVICE_ID);
-    if (err != ESP_OK) {
-        ESP_LOGE("ZB", "Errore nella registrazione dell'endpoint: %d", err);
-        return;
-    }
+    // Creazione della lista dei cluster
+    esp_zb_cluster_list_t *esp_zb_cluster_list = esp_zb_zcl_cluster_list_create();
+    esp_zb_cluster_list_add_basic_cluster(esp_zb_cluster_list, esp_zb_basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_identify_cluster(esp_zb_cluster_list, esp_zb_identify_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_groups_cluster(esp_zb_cluster_list, esp_zb_groups_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_scenes_cluster(esp_zb_cluster_list, esp_zb_scenes_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_on_off_cluster(esp_zb_cluster_list, esp_zb_on_off_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+
+    // Creazione della lista degli endpoint
+    esp_zb_ep_list_t *esp_zb_ep_list = esp_zb_ep_list_create();
+    esp_zb_ep_list_add_ep(esp_zb_ep_list, esp_zb_cluster_list, HA_ESP_LIGHT_ENDPOINT, ESP_ZB_AF_HA_PROFILE_ID, ESP_ZB_HA_ON_OFF_OUTPUT_DEVICE_ID);
 
     // Registrazione del dispositivo
-    ESP_ERROR_CHECK(esp_zb_device_register(on_off_light_ep));
-
-    // Aspettiamo prima di recuperare gli attributi
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    // Debug: Verifica se gli attributi sono stati registrati
-    ESP_LOGI("ZB", "Verifica attributi nel Basic Cluster...");
-    esp_zb_zcl_attr_t *attr;
-
-    attr = esp_zb_zcl_get_attribute(HA_ESP_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_BASIC, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID);
-    if (attr) {
-        ESP_LOGI("ZB", "Attributo Manufacturer Name trovato! Valore: %s", (char *)&attr->data_p[1]);
-    } else {
-        ESP_LOGE("ZB", "Errore: impossibile trovare Manufacturer Name!");
-    }
-
-    attr = esp_zb_zcl_get_attribute(HA_ESP_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_BASIC, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID);
-    if (attr) {
-        ESP_LOGI("ZB", "Attributo Model Identifier trovato! Valore: %s", (char *)&attr->data_p[1]);
-    } else {
-        ESP_LOGE("ZB", "Errore: impossibile trovare Model Identifier!");
-    }
+    esp_zb_device_register(esp_zb_ep_list);
+    //esp_zb_device_add_set_attr_value_cb(attr_cb);
 
     // Avvio dello stack Zigbee
-    esp_zb_core_action_handler_register(zb_action_handler);
-    esp_zb_set_primary_network_channel_set(ESP_ZB_PRIMARY_CHANNEL_MASK);
     ESP_ERROR_CHECK(esp_zb_start(false));
     esp_zb_main_loop_iteration();
 }
-
-
-
-
-
-
 
 void app_main(void)
 {

@@ -66,9 +66,18 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
     return ret;
 }
 
-static esp_err_t attr_cb(const esp_zb_zcl_set_attr_value_message_t *message)
+static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id, const void *message)
 {
-    return zb_attribute_handler(message);
+    esp_err_t ret = ESP_OK;
+    switch (callback_id) {
+    case ESP_ZB_CORE_SET_ATTR_VALUE_CB_ID:
+        ret = zb_attribute_handler((esp_zb_zcl_set_attr_value_message_t *)message);
+        break;
+    default:
+        ESP_LOGW(TAG, "Receive Zigbee action(0x%x) callback", callback_id);
+        break;
+    }
+    return ret;
 }
 
 static void update_rgb_led_state(esp_zb_app_signal_type_t sig_type)
@@ -137,19 +146,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     }
 }
 
-static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id, const void *message)
-{
-    esp_err_t ret = ESP_OK;
-    switch (callback_id) {
-        case ESP_ZB_CORE_SET_ATTR_VALUE_CB_ID:
-            ret = zb_attribute_handler((esp_zb_zcl_set_attr_value_message_t *)message);
-            break;
-        default:
-            ESP_LOGW(TAG, "Unhandled Zigbee action: %d", callback_id);
-            break;
-    }
-    return ret;
-}
 
 static void send_basic_cluster_attributes()
 {
@@ -254,7 +250,7 @@ static void esp_zb_task(void *pvParameters)
 
     // Registrazione del dispositivo
     esp_zb_device_register(esp_zb_ep_list);
-    //esp_zb_device_add_set_attr_value_cb(attr_cb);
+    esp_zb_core_action_handler_register(zb_action_handler);
 
     // Avvio dello stack Zigbee
     ESP_ERROR_CHECK(esp_zb_start(false));

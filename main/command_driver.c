@@ -1,8 +1,8 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "led_strip.h"
-#include "light_driver.h"
-#include "esp_zb_light.h"
+#include "command_driver.h"
+#include "thermostat.h"
 
 static led_strip_handle_t s_led_strip;
 

@@ -4,7 +4,7 @@
 #include "nvs_flash.h"
 #include "driver/gpio.h"
 #include "ha/esp_zigbee_ha_standard.h"
-#include "esp_zb_light.h"
+#include "thermostat.h"
 #include "light_driver.h"
 #include "esp_check.h"
 #include <string.h>  // ✅ Inclusione necessaria per memcpy()

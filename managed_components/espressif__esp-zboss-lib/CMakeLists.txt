@@ -7,7 +7,6 @@ idf_component_register(
 if(CONFIG_ZB_ENABLED)
 
     set(ZBOSS_LIBS "")
-    set(CONFIG_LOG_DEFAULT_LEVEL 5)
     if(CONFIG_ZB_ZCZR)
         if(CONFIG_ESP_ZB_TRACE_ENABLE)
             add_prebuilt_library(zboss_stack_lib "${CMAKE_CURRENT_SOURCE_DIR}/lib/${idf_target}/libzboss_stack.zczr.trace.a")

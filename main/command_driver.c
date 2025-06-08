@@ -2,7 +2,7 @@
 #include "driver/gpio.h"
 #include "led_strip.h"
 #include "command_driver.h"
-#include "thermostat.h"
+#include "main.h"
 
 static led_strip_handle_t s_led_strip;
 

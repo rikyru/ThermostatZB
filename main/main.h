@@ -52,3 +52,12 @@
     {                                                           \
         .host_connection_mode = HOST_CONNECTION_MODE_NONE,      \
     }
+
+#define ESP_ZB_ZR_CONFIG()                                          \
+    {                                                               \
+        .esp_zb_role = ESP_ZB_DEVICE_TYPE_ROUTER,                   \
+        .install_code_policy = false,          \
+        .nwk_cfg.zczr_cfg = {                                         \
+            .max_children = 4,                                      \
+        },                                                          \
+    }

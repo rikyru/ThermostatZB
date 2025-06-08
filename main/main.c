@@ -15,6 +15,9 @@
 #define RGB_LED_GPIO 20
 #define RGB_LED_ENABLE_GPIO 19
 
+#define CMD_CALDAIA_GPIO 1
+#define CMD_TABLET_GPIO 2
+
 static esp_zb_ep_list_t *on_off_light_ep;
 
 /********************* Define functions **************************/
@@ -172,13 +175,13 @@ static void send_basic_cluster_attributes()
         ESP_ZB_ZCL_CLUSTER_ID_BASIC,
         ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
         ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
-        (void *)"ESP32-C6_test",
+        (void *)"Smart_Thermostat",
         ESP_ZB_ZCL_ATTR_TYPE_CHAR_STRING);
     
     if (err != ESP_OK) {
         ESP_LOGE("ZB", "Failed to set Model Identifier, error: %s", esp_err_to_name(err));
     } else {
-        ESP_LOGI("ZB", "Successfully set Model Identifier: ESP32-C6_test");
+        ESP_LOGI("ZB", "Successfully set Model Identifier: Smart_Thermostat");
     }
 }
 
@@ -201,7 +204,7 @@ static void esp_zb_task(void *pvParameters)
     ESP_LOGI("ZB", "Inizializzazione Zigbee...");
 
     // Configurazione dello stack Zigbee
-    esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZED_CONFIG();
+    esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZR_CONFIG();
     esp_zb_init(&zb_nwk_cfg);
     //esp_zb_set_network_channel(23);
 

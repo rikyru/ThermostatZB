@@ -17,13 +17,74 @@
 
 #define CMD_CALDAIA_GPIO 1
 #define CMD_TABLET_GPIO 2
+#define WIFI_ENABLE_GPIO       3   // GPIO3 -> abilita controllo switch antenna
+#define WIFI_ANT_CONFIG_GPIO   14  // GPIO14 -> seleziona antenna
 
 static esp_zb_ep_list_t *on_off_light_ep;
+static bool zb_joined = false;
+static volatile bool zb_is_joining = false;
 
 /********************* Define functions **************************/
 static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask)
 {
-    ESP_ERROR_CHECK(esp_zb_bdb_start_top_level_commissioning(mode_mask));
+    if (!zb_joined && !zb_is_joining) {
+        zb_is_joining = true;
+        ESP_LOGW(TAG, "Device not joined, retrying steering...");
+        esp_zb_bdb_start_top_level_commissioning(mode_mask);
+    }
+}
+
+static void enable_external_antenna(void)
+{
+    // Imposta GPIO3 LOW per abilitare il controllo dell'RF switch
+    gpio_reset_pin(WIFI_ENABLE_GPIO);
+    gpio_set_direction(WIFI_ENABLE_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(WIFI_ENABLE_GPIO, 0);
+
+    // Attendi un attimo
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Imposta GPIO14 HIGH per usare l’antenna esterna
+    gpio_reset_pin(WIFI_ANT_CONFIG_GPIO);
+    gpio_set_direction(WIFI_ANT_CONFIG_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(WIFI_ANT_CONFIG_GPIO, 1);
+
+    ESP_LOGI("ANTENNA", "Antenna esterna abilitata (GPIO3=LOW, GPIO14=HIGH)");
+}
+
+static void send_basic_cluster_attributes()
+{
+    ESP_LOGI("ZB", "Setting Manufacturer Name and Model Identifier");
+
+    esp_err_t err;
+
+    err = esp_zb_zcl_set_attribute_val(
+        HA_ESP_LIGHT_ENDPOINT,
+        ESP_ZB_ZCL_CLUSTER_ID_BASIC,
+        ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+        ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
+        (void *)"rikyru",
+        ESP_ZB_ZCL_ATTR_TYPE_CHAR_STRING);
+    
+    if (err != ESP_OK) {
+        ESP_LOGE("ZB", "Failed to set Manufacturer Name, error: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI("ZB", "Successfully set Manufacturer Name: rikyru");
+    }
+
+    err = esp_zb_zcl_set_attribute_val(
+        HA_ESP_LIGHT_ENDPOINT,
+        ESP_ZB_ZCL_CLUSTER_ID_BASIC,
+        ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+        ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
+        (void *)"Smart_Thermostat",
+        ESP_ZB_ZCL_ATTR_TYPE_CHAR_STRING);
+    
+    if (err != ESP_OK) {
+        ESP_LOGE("ZB", "Failed to set Model Identifier, error: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI("ZB", "Successfully set Model Identifier: Smart_Thermostat");
+    }
 }
 
 static void configure_gpio()
@@ -101,6 +162,19 @@ static void update_rgb_led_state(esp_zb_app_signal_type_t sig_type)
     }
 }
 
+static void steering_retry_task(void *pvParameters)
+{
+    while (!zb_joined) {
+        if (!zb_is_joining) {
+            ESP_LOGW(TAG, "Device not joined, retrying steering...");
+            zb_is_joining = true;
+            esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+        }
+        vTaskDelay(pdMS_TO_TICKS(10000));  // ogni 10 secondi
+    }
+    vTaskDelete(NULL);
+}
+
 void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
 {
     uint32_t *p_sg_p       = signal_struct->p_app_signal;
@@ -119,6 +193,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             if (esp_zb_bdb_is_factory_new()) {
                 ESP_LOGI(TAG, "Start network steering");
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+                //send_basic_cluster_attributes(); 
             } else {
                 ESP_LOGI(TAG, "Device rebooted");
                 //configure_attribute_reporting();
@@ -129,9 +204,12 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
         }
         break;
     case ESP_ZB_BDB_SIGNAL_STEERING:
+        zb_is_joining = false;
         if (err_status == ESP_OK) {
+            send_basic_cluster_attributes();
             esp_zb_ieee_addr_t extended_pan_id;
             esp_zb_get_extended_pan_id(extended_pan_id);
+            zb_joined = true;
             update_rgb_led_state(ESP_ZB_ZDO_SIGNAL_DEVICE_AUTHORIZED);
             ESP_LOGI(TAG, "Joined network successfully (Extended PAN ID: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x, PAN ID: 0x%04hx, Channel:%d, Short Address: 0x%04hx)",
                      extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4],
@@ -142,6 +220,19 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb, ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
         }
         break;
+
+    case ESP_ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY: 
+        if (err_status == ESP_OK) {
+            ESP_LOGI(TAG, "ZDO config completed successfully");
+        } else {
+            ESP_LOGW(TAG, "ZDO config failed (status: %s), retrying in 3s", esp_err_to_name(err_status));
+            esp_zb_scheduler_alarm(
+                (esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                ESP_ZB_BDB_MODE_NETWORK_STEERING,
+                3000  // in millisecondi
+            );
+        }
+    break;
     default:
         ESP_LOGI(TAG, "ZDO signal: %s (0x%x), status: %s", esp_zb_zdo_signal_to_string(sig_type), sig_type,
                  esp_err_to_name(err_status));
@@ -150,43 +241,16 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
 }
 
 
-static void send_basic_cluster_attributes()
-{
-    ESP_LOGI("ZB", "Setting Manufacturer Name and Model Identifier");
 
-    esp_err_t err;
-
-    err = esp_zb_zcl_set_attribute_val(
-        HA_ESP_LIGHT_ENDPOINT,
-        ESP_ZB_ZCL_CLUSTER_ID_BASIC,
-        ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
-        (void *)"rikyru",
-        ESP_ZB_ZCL_ATTR_TYPE_CHAR_STRING);
-    
-    if (err != ESP_OK) {
-        ESP_LOGE("ZB", "Failed to set Manufacturer Name, error: %s", esp_err_to_name(err));
-    } else {
-        ESP_LOGI("ZB", "Successfully set Manufacturer Name: rikyru");
-    }
-
-    err = esp_zb_zcl_set_attribute_val(
-        HA_ESP_LIGHT_ENDPOINT,
-        ESP_ZB_ZCL_CLUSTER_ID_BASIC,
-        ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
-        (void *)"Smart_Thermostat",
-        ESP_ZB_ZCL_ATTR_TYPE_CHAR_STRING);
-    
-    if (err != ESP_OK) {
-        ESP_LOGE("ZB", "Failed to set Model Identifier, error: %s", esp_err_to_name(err));
-    } else {
-        ESP_LOGI("ZB", "Successfully set Model Identifier: Smart_Thermostat");
-    }
-}
 
 static void button_task(void *pvParameters)
 {
+    // Esegui subito la logica come se il pulsante fosse stato premuto all'avvio
+    ESP_LOGI(TAG, "Startup: Simulating button press. Starting network steering...");
+    esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
+    send_basic_cluster_attributes();
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Debounce delay
+
     while (1) {
         if (gpio_get_level(BUTTON_GPIO) == 0) {
             ESP_LOGI(TAG, "Button pressed. Starting network steering...");
@@ -199,12 +263,13 @@ static void button_task(void *pvParameters)
 }
 
 
+
 static void esp_zb_task(void *pvParameters)
 {
     ESP_LOGI("ZB", "Inizializzazione Zigbee...");
 
     // Configurazione dello stack Zigbee
-    esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZR_CONFIG();
+    esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZED_CONFIG();
     esp_zb_init(&zb_nwk_cfg);
     //esp_zb_set_network_channel(23);
 
@@ -212,7 +277,7 @@ static void esp_zb_task(void *pvParameters)
     uint8_t test_attr = 0;
     uint8_t test_attr2 = 4;
     static uint8_t manufacturer_name[33] = {6, 'r', 'i', 'k', 'y', 'r', 'u'};
-    static uint8_t model_id[33] = {12, 'E', 'S', 'P', '3', '2', '-', 'C', '6', '_', 'T', 'e', 's', 't'};
+    static uint8_t model_id[33] = {16, 'S', 'm', 'a', 'r', 't', '_', 'T', 'h', 'e', 'r', 'm', 'o','s','t','a','t'};
 
     // Creazione del Basic Cluster
     esp_zb_attribute_list_t *esp_zb_basic_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC);
@@ -255,6 +320,8 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_device_register(esp_zb_ep_list);
     esp_zb_core_action_handler_register(zb_action_handler);
 
+    // set type device
+    //esp_zb_set_device_type(ESP_ZB_DEVICE_TYPE_ROUTER);
     // Avvio dello stack Zigbee
     ESP_ERROR_CHECK(esp_zb_start(false));
     esp_zb_main_loop_iteration();
@@ -272,9 +339,11 @@ void app_main(void)
 
     configure_gpio();
     light_driver_init(LIGHT_DEFAULT_OFF);
+    enable_external_antenna();
 
     light_driver_set_rgb(255, 0, 0); // Initialize RGB LED to red
 
-    xTaskCreate(button_task, "button_task", 4096, NULL, 10, NULL); // Add button task
+    //xTaskCreate(button_task, "button_task", 4096, NULL, 10, NULL); // Add button task
     xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
+    //xTaskCreate(steering_retry_task, "steering_retry", 4096, NULL, 4, NULL);
 }

@@ -23,14 +23,11 @@
 #define ESP_ZB_PRIMARY_CHANNEL_MASK     ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK  /* Zigbee primary channel mask use in the example */
 
 // GPIO configuration
-#define BUTTON_GPIO      9
-#define BLUE_LED_GPIO    7
-#define RGB_LED_EN_GPIO  19
-#define RGB_LED_DATA_GPIO 20
 
-#define LED_RGB_COLOR_RED    {255, 0, 0}  // Non paired
-#define LED_RGB_COLOR_BLUE   {0, 0, 255}  // Pairing
-#define LED_RGB_COLOR_GREEN  {0, 255, 0}  // Paired
+#define CMD_CALDAIA_GPIO 1
+#define CMD_TABLET_GPIO 2
+
+
 
 
 #define ESP_ZB_ZED_CONFIG()                                         \

@@ -9,11 +9,7 @@
 #include "esp_check.h"
 #include <string.h>  // ✅ Inclusione necessaria per memcpy()
 
-#define TAG "ESP_ZB_LIGHT"
-#define BUTTON_GPIO 9
-#define BLUE_LED_GPIO 7
-#define RGB_LED_GPIO 20
-#define RGB_LED_ENABLE_GPIO 19
+#define TAG "ESP_ZB_CALDAIA"
 
 #define CMD_CALDAIA_GPIO 1
 #define CMD_TABLET_GPIO 2
@@ -87,31 +83,11 @@ static void send_basic_cluster_attributes()
     }
 }
 
-static void configure_gpio()
-{
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << BLUE_LED_GPIO) | (1ULL << RGB_LED_ENABLE_GPIO) | (1ULL << BUTTON_GPIO),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io_conf);
-
-    // Configurazione per il pulsante
-    io_conf.pin_bit_mask = (1ULL << BUTTON_GPIO);
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-    gpio_config(&io_conf);
-
-    gpio_set_level(BLUE_LED_GPIO, 0);
-    gpio_set_level(RGB_LED_ENABLE_GPIO, 1); // Enable RGB LED
-}
 
 static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t *message)
 {
     esp_err_t ret = ESP_OK;
-    bool light_state = 0;
+    bool command_state = 0;
 
     ESP_RETURN_ON_FALSE(message, ESP_FAIL, TAG, "Empty message");
     ESP_RETURN_ON_FALSE(message->info.status == ESP_ZB_ZCL_STATUS_SUCCESS, ESP_ERR_INVALID_ARG, TAG, "Received message: error status(%d)",
@@ -120,10 +96,9 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
     if (message->info.dst_endpoint == HA_ESP_LIGHT_ENDPOINT) {
         if (message->info.cluster == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
             if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_BOOL) {
-                light_state = message->attribute.data.value ? *(bool *)message->attribute.data.value : light_state;
-                ESP_LOGI(TAG, "Light sets to %s", light_state ? "On" : "Off");
-                gpio_set_level(BLUE_LED_GPIO, light_state); // Control blue LED
-                light_driver_set_power(light_state);
+                command_state = message->attribute.data.value ? *(bool *)message->attribute.data.value : command_state;
+                ESP_LOGI(TAG, "Command caldaia sets to %s", command_state ? "On" : "Off");
+                gpio_set_level(CMD_CALDAIA_GPIO, command_state); // Control caldaia
             }
         }
     }
@@ -144,23 +119,6 @@ static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id,
     return ret;
 }
 
-static void update_rgb_led_state(esp_zb_app_signal_type_t sig_type)
-{
-    switch (sig_type) {
-        case ESP_ZB_ZDO_SIGNAL_DEVICE_ANNCE:
-            light_driver_set_rgb(255, 0, 0); // Red: Not paired
-            break;
-        case ESP_ZB_BDB_SIGNAL_STEERING:
-            light_driver_set_rgb(0, 0, 255); // Blue: Pairing in progress
-            break;
-        case ESP_ZB_ZDO_SIGNAL_DEVICE_AUTHORIZED:
-            light_driver_set_rgb(0, 255, 0); // Green: Paired
-            break;
-        default:
-            ESP_LOGI(TAG, "Unhandled signal type: %d", sig_type);
-            break;
-    }
-}
 
 static void steering_retry_task(void *pvParameters)
 {
@@ -210,7 +168,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             esp_zb_ieee_addr_t extended_pan_id;
             esp_zb_get_extended_pan_id(extended_pan_id);
             zb_joined = true;
-            update_rgb_led_state(ESP_ZB_ZDO_SIGNAL_DEVICE_AUTHORIZED);
             ESP_LOGI(TAG, "Joined network successfully (Extended PAN ID: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x, PAN ID: 0x%04hx, Channel:%d, Short Address: 0x%04hx)",
                      extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4],
                      extended_pan_id[3], extended_pan_id[2], extended_pan_id[1], extended_pan_id[0],
@@ -243,24 +200,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
 
 
 
-static void button_task(void *pvParameters)
-{
-    // Esegui subito la logica come se il pulsante fosse stato premuto all'avvio
-    ESP_LOGI(TAG, "Startup: Simulating button press. Starting network steering...");
-    esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
-    send_basic_cluster_attributes();
-    vTaskDelay(pdMS_TO_TICKS(1000)); // Debounce delay
-
-    while (1) {
-        if (gpio_get_level(BUTTON_GPIO) == 0) {
-            ESP_LOGI(TAG, "Button pressed. Starting network steering...");
-            esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
-            send_basic_cluster_attributes();
-            vTaskDelay(pdMS_TO_TICKS(1000)); // Debounce delay
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-}
 
 
 
@@ -337,13 +276,10 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
 
-    configure_gpio();
-    light_driver_init(LIGHT_DEFAULT_OFF);
+
+    command_driver_init();
     enable_external_antenna();
 
-    light_driver_set_rgb(255, 0, 0); // Initialize RGB LED to red
 
-    //xTaskCreate(button_task, "button_task", 4096, NULL, 10, NULL); // Add button task
     xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
-    //xTaskCreate(steering_retry_task, "steering_retry", 4096, NULL, 4, NULL);
 }

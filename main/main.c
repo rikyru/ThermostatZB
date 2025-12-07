@@ -102,6 +102,15 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
             }
         }
     }
+    else if (message->info.dst_endpoint == HA_ESP_TABLET_ENDPOINT) {
+        if (message->info.cluster == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
+            if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_BOOL) {
+                command_state = message->attribute.data.value ? *(bool *)message->attribute.data.value : command_state;
+                ESP_LOGI(TAG, "Command tablet sets to %s", command_state ? "On" : "Off");
+                gpio_set_level(CMD_TABLET_GPIO, command_state); // Control caldaia
+            }
+        }
+    }
     return ret;
 }
 
@@ -216,7 +225,7 @@ static void esp_zb_task(void *pvParameters)
     uint8_t test_attr = 0;
     uint8_t test_attr2 = 4;
     static uint8_t manufacturer_name[33] = {6, 'r', 'i', 'k', 'y', 'r', 'u'};
-    static uint8_t model_id[33] = {16, 'S', 'm', 'a', 'r', 't', '_', 'T', 'h', 'e', 'r', 'm', 'o','s','t','a','t'};
+    static uint8_t model_id[33] = {17, 'S', 'm', 'a', 'r', 't', '_', 'T', 'h', 'e', 'r', 'm', 'o','s','t','a','t'};
 
     // Creazione del Basic Cluster
     esp_zb_attribute_list_t *esp_zb_basic_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC);
@@ -243,6 +252,10 @@ static void esp_zb_task(void *pvParameters)
     on_off_cfg.on_off = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
     esp_zb_attribute_list_t *esp_zb_on_off_cluster = esp_zb_on_off_cluster_create(&on_off_cfg);
 
+    // --- On/Off cluster per TABLET (endpoint 2)
+    esp_zb_on_off_cluster_cfg_t on_off_cfg2 = {.on_off = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE};
+    esp_zb_attribute_list_t *on_off_cluster2 = esp_zb_on_off_cluster_create(&on_off_cfg2);
+
     // Creazione della lista dei cluster
     esp_zb_cluster_list_t *esp_zb_cluster_list = esp_zb_zcl_cluster_list_create();
     esp_zb_cluster_list_add_basic_cluster(esp_zb_cluster_list, esp_zb_basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
@@ -251,9 +264,16 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_cluster_list_add_scenes_cluster(esp_zb_cluster_list, esp_zb_scenes_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     esp_zb_cluster_list_add_on_off_cluster(esp_zb_cluster_list, esp_zb_on_off_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
 
+    // Lista cluster per endpoint 2 (puoi anche mettere solo On/Off se vuoi)
+    esp_zb_cluster_list_t *cluster_list_ep2 = esp_zb_zcl_cluster_list_create();
+    esp_zb_cluster_list_add_basic_cluster(cluster_list_ep2, esp_zb_basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_on_off_cluster(cluster_list_ep2, on_off_cluster2, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+
     // Creazione della lista degli endpoint
     esp_zb_ep_list_t *esp_zb_ep_list = esp_zb_ep_list_create();
     esp_zb_ep_list_add_ep(esp_zb_ep_list, esp_zb_cluster_list, HA_ESP_LIGHT_ENDPOINT, ESP_ZB_AF_HA_PROFILE_ID, ESP_ZB_HA_ON_OFF_OUTPUT_DEVICE_ID);
+    esp_zb_ep_list_add_ep(esp_zb_ep_list, cluster_list_ep2, HA_ESP_TABLET_ENDPOINT,
+                      ESP_ZB_AF_HA_PROFILE_ID, ESP_ZB_HA_ON_OFF_OUTPUT_DEVICE_ID);
 
     // Registrazione del dispositivo
     esp_zb_device_register(esp_zb_ep_list);

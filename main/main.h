@@ -21,6 +21,7 @@
 #define ED_KEEP_ALIVE                   3000    /* 3000 millisecond */
 #define HA_ESP_LIGHT_ENDPOINT           10      /* esp light bulb device endpoint, used to process light controlling commands */
 #define ESP_ZB_PRIMARY_CHANNEL_MASK     ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK  /* Zigbee primary channel mask use in the example */
+#define HA_ESP_TABLET_ENDPOINT  2
 
 // GPIO configuration
 

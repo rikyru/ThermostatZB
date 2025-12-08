@@ -18,5 +18,5 @@
     },
     "idf.flashType": "UART",
     "idf.pythonInstallPath": "/usr/bin/python3",
-    "idf.port": "/dev/tty.usbmodem141401"
+    "idf.port": "/dev/tty.usbmodem1101"
 }

@@ -173,7 +173,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     case ESP_ZB_BDB_SIGNAL_STEERING:
         zb_is_joining = false;
         if (err_status == ESP_OK) {
-            send_basic_cluster_attributes();
+            //send_basic_cluster_attributes();
             esp_zb_ieee_addr_t extended_pan_id;
             esp_zb_get_extended_pan_id(extended_pan_id);
             zb_joined = true;
@@ -222,8 +222,8 @@ static void esp_zb_task(void *pvParameters)
     //esp_zb_set_network_channel(23);
 
     // Definizione degli attributi
-    uint8_t test_attr = 0;
-    uint8_t test_attr2 = 4;
+    static uint8_t test_attr = 3;
+    static uint8_t test_attr2 = 4;
     static uint8_t manufacturer_name[33] = {6, 'r', 'i', 'k', 'y', 'r', 'u'};
     static uint8_t model_id[33] = {17, 'S', 'm', 'a', 'r', 't', '_', 'T', 'h', 'e', 'r', 'm', 'o','s','t','a','t'};
 
@@ -231,9 +231,17 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_attribute_list_t *esp_zb_basic_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC);
     esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_ZCL_VERSION_ID, &test_attr);
     esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, &test_attr2);
-    esp_zb_cluster_update_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_ZCL_VERSION_ID, &test_attr2);
+    esp_zb_cluster_update_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_ZCL_VERSION_ID, &test_attr);
     esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, &model_id[0]);
     esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, &manufacturer_name[0]);
+
+    // Creazione del Basic Cluster
+    esp_zb_attribute_list_t *esp_zb_basic_cluster2 = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster2, ESP_ZB_ZCL_ATTR_BASIC_ZCL_VERSION_ID, &test_attr);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster2, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, &test_attr2);
+    esp_zb_cluster_update_attr(esp_zb_basic_cluster2, ESP_ZB_ZCL_ATTR_BASIC_ZCL_VERSION_ID, &test_attr);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster2, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, &model_id[0]);
+    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster2, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, &manufacturer_name[0]);
 
     // Creazione del Identify Cluster
     esp_zb_attribute_list_t *esp_zb_identify_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_IDENTIFY);
@@ -247,14 +255,20 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_attribute_list_t *esp_zb_scenes_cluster = esp_zb_scenes_cluster_create(NULL);
     esp_zb_cluster_update_attr(esp_zb_scenes_cluster, ESP_ZB_ZCL_ATTR_SCENES_NAME_SUPPORT_ID, &test_attr);
 
-    // Creazione del On/Off Cluster
-    esp_zb_on_off_cluster_cfg_t on_off_cfg;
-    on_off_cfg.on_off = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
-    esp_zb_attribute_list_t *esp_zb_on_off_cluster = esp_zb_on_off_cluster_create(&on_off_cfg);
+    static bool on_off_ep1 = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
+    static bool on_off_ep2 = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
 
-    // --- On/Off cluster per TABLET (endpoint 2)
-    esp_zb_on_off_cluster_cfg_t on_off_cfg2 = {.on_off = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE};
+    static esp_zb_on_off_cluster_cfg_t on_off_cfg1 = {
+        .on_off = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE,
+    };
+
+    static esp_zb_on_off_cluster_cfg_t on_off_cfg2 = {
+        .on_off = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE,
+    };
+    esp_zb_attribute_list_t *esp_zb_on_off_cluster = esp_zb_on_off_cluster_create(&on_off_cfg1);
     esp_zb_attribute_list_t *on_off_cluster2 = esp_zb_on_off_cluster_create(&on_off_cfg2);
+
+
 
     // Creazione della lista dei cluster
     esp_zb_cluster_list_t *esp_zb_cluster_list = esp_zb_zcl_cluster_list_create();
@@ -264,9 +278,11 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_cluster_list_add_scenes_cluster(esp_zb_cluster_list, esp_zb_scenes_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     esp_zb_cluster_list_add_on_off_cluster(esp_zb_cluster_list, esp_zb_on_off_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
 
+    
+
     // Lista cluster per endpoint 2 (puoi anche mettere solo On/Off se vuoi)
     esp_zb_cluster_list_t *cluster_list_ep2 = esp_zb_zcl_cluster_list_create();
-    esp_zb_cluster_list_add_basic_cluster(cluster_list_ep2, esp_zb_basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_basic_cluster(cluster_list_ep2, esp_zb_basic_cluster2, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
     esp_zb_cluster_list_add_on_off_cluster(cluster_list_ep2, on_off_cluster2, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
 
     // Creazione della lista degli endpoint
@@ -283,7 +299,12 @@ static void esp_zb_task(void *pvParameters)
     //esp_zb_set_device_type(ESP_ZB_DEVICE_TYPE_ROUTER);
     // Avvio dello stack Zigbee
     ESP_ERROR_CHECK(esp_zb_start(false));
-    esp_zb_main_loop_iteration();
+    
+    while (true)
+    {
+        esp_zb_main_loop_iteration();
+        vTaskDelay(pdMS_TO_TICKS(10)); // se la funzione già loopa internamente, qui non arrivi mai
+    }
 }
 
 void app_main(void)
